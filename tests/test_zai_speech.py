@@ -131,6 +131,26 @@ class ZaiSpeechTests(unittest.TestCase):
             finally:
                 engine.close()
 
+    def test_voice_only_mode_replies_with_transcript_without_task_proposal(self):
+        from plus_one.engine import Engine
+        from plus_one.worker import process_inbox
+        now = datetime(2026, 10, 31, 12, tzinfo=timezone.utc)
+        with TemporaryDirectory() as tmp, patch.dict('os.environ', {'VOICE_TRANSCRIPTION_TEST_ONLY':'true'}):
+            engine = Engine(Path(tmp) / 'synthetic.sqlite3', clock=lambda: now)
+            try:
+                engine.enqueue_inbound('gupshup', 'synthetic-voice', 'synthetic-user',
+                                       {'kind':'audio','text':None,'media':{},'received_at':now.isoformat()})
+                transcriber=Mock()
+                transcriber.transcribe.return_value='Remind me to buy apples on Monday.'
+                process_inbox(engine, transcribers={'gupshup':transcriber})
+                body=engine.db.execute('SELECT body FROM reply_outbox').fetchone()['body']
+                self.assertIn('I heard: Remind me to buy apples on Monday.',body)
+                self.assertIn('Nothing was scheduled',body)
+                self.assertEqual(engine.db.execute('SELECT COUNT(*) FROM tasks').fetchone()[0],0)
+                self.assertEqual(engine.db.execute('SELECT COUNT(*) FROM pending').fetchone()[0],0)
+                self.assertIsNone(engine.db.execute('SELECT payload FROM inbox').fetchone()['payload'])
+            finally:engine.close()
+
     @unittest.skipUnless(shutil.which("ffmpeg"), "No ffmpeg installed")
     def test_real_synthetic_codec_and_duration_boundaries(self):
         for seconds, accepted in ((1, True), (30, True), (31, False)):

@@ -2,6 +2,7 @@
 from __future__ import annotations
 import os
 from pathlib import Path
+import os
 import threading
 from .transport import DeliveryError, DeliveryUncertain, TransportDisabled
 from .zai_speech import VoiceInputError
@@ -57,7 +58,10 @@ def process_inbox(engine,transport=None,transcribers=None):
                     try:
                         text=transcriber.transcribe(payload['media'])
                         if not isinstance(text,str) or not text.strip() or len(text)>4000: raise ValueError('Invalid transcript')
-                        if not engine.save_inbound_transcript(row['id'],text): continue
+                        if os.environ.get('VOICE_TRANSCRIPTION_TEST_ONLY','').lower() == 'true':
+                            response='I heard: '+text.strip()+'\nVoice transcription test only. Nothing was scheduled or saved as a task.'
+                        else:
+                            if not engine.save_inbound_transcript(row['id'],text): continue
                     except VoiceInputError as exc:
                         response=str(exc)
                     except Exception:
