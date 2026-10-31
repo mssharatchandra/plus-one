@@ -46,6 +46,15 @@ class EngineTests(unittest.TestCase):
         p=json.loads(self.e.snapshot('alice')['expenses'][0]['payload'])
         self.assertEqual(sum(s['amount_minor'] for s in p['shares']),10000)
         self.assertIn('Maya owes you INR 33.33',self.say('balances'))
+    def test_polite_balance_request_uses_confirmed_ledger_only(self):
+        self.say('I paid INR 600 for dinner with Maya and Rahul')
+        self.assertIn('No confirmed balances',self.say('okay, give me my balances'))
+        self.say('confirm')
+        result=self.say('okay, give me my balances')
+        self.assertIn('Maya owes you INR 200.00',result)
+        self.assertIn('Rahul owes you INR 200.00',result)
+        self.assertIn('Maya owes you INR 200.00',self.say('please show my balances'))
+        self.assertIn('little more detail',self.say('what does Maya owe me?'))
     def test_two_way_net_balances_with_confirmed_default_currency(self):
         self.say('currency INR'); self.assertIsNone(self.e.snapshot('alice')['profile']['currency'])
         self.say('confirm'); self.say('I paid 600 for dinner split with Maya and Rahul'); self.say('confirm')

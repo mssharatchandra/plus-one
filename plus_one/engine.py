@@ -202,9 +202,15 @@ class Engine:
                     or (heading=='help' and lower=='help')):
                 return candidate
         simple=text.casefold().rstrip(' .?!')
+        simple=re.sub(r'^(?:(?:okay|ok|please|hey)[,\s]+)+','',simple).strip()
+        simple=re.sub(r'^(?:can you|could you)\s+','',simple)
         aliases={'who owes me':'balances','who do i owe':'balances','what do i owe':'balances',
-                 'show my balances':'balances','who owes me and who do i owe':'balances',
-                 'show my reminders':'tasks','show my tasks':'tasks','what do you remember about me':'memory'}
+                 'show my balances':'balances','show me my balances':'balances',
+                 'give me my balances':'balances','my balances':'balances',
+                 'who owes me and who do i owe':'balances',
+                 'show my reminders':'tasks','show me my reminders':'tasks',
+                 'give me my reminders':'tasks','show my tasks':'tasks',
+                 'give me my tasks':'tasks','what do you remember about me':'memory'}
         if simple in aliases: return aliases[simple]
         match=re.fullmatch(r"(?:(?:i['’]m overwhelmed[, ]+)?(?:can you |could you |please )?)(remind me to .+)",text,re.I)
         if match:
