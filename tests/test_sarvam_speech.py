@@ -129,6 +129,34 @@ class SarvamSpeechTests(unittest.TestCase):
         self.assertEqual(media_request.get_header("User-agent"), "PlusOne/0.1")
         self.assertIsNone(media_request.get_header("Authorization"))
 
+    def test_429_pauses_subsequent_audio_without_another_media_get(self):
+        from plus_one.engine import Engine
+        from plus_one.worker import process_inbox
+        app_id = "11111111-2222-3333-4444-555555555555"
+        cfg = GupshupConfig(api_key="private-key", app_name="Demo", app_id=app_id,
+            source="15557654321", allowed_recipients=frozenset({"whatsapp:+15551234567"}),
+            webhook_secret="private-webhook-secret-1234567890")
+        media = GupshupMedia(f"https://filemanager.gupshup.io/wa/{app_id}/wa/media/opaque-media-id?download=false",
+            "audio/ogg", "msg1", app_id, "Demo", datetime.now(timezone.utc).timestamp()+7200)
+        client = Mock(); client.open.side_effect = SpeechHTTPError(429, "unknown", "rate")
+        transcriber = GupshupTranscriber(cfg, config(), client)
+        with TemporaryDirectory() as tmp:
+            engine = Engine(Path(tmp)/"test.sqlite3")
+            try:
+                for mid in ("synthetic-1", "synthetic-2"):
+                    engine.enqueue_inbound("gupshup",mid,"synthetic-user",
+                        {"kind":"audio", "text":None, "media":media.to_dict(),
+                         "received_at":datetime.now(timezone.utc).isoformat()})
+                process_inbox(engine,transcribers={"gupshup":transcriber})
+                self.assertEqual(client.open.call_count, 1)
+                rows=engine.db.execute("SELECT error FROM inbox ORDER BY id").fetchall()
+                self.assertEqual(rows[0]["error"],"voice:media_fetch:rate:429")
+                self.assertEqual(rows[1]["error"],"voice:media_fetch:cooldown:none")
+                replies=engine.db.execute("SELECT body FROM reply_outbox ORDER BY id").fetchall()
+                self.assertEqual(len(replies),2)
+                self.assertTrue(all("temporarily unavailable" in r["body"] for r in replies))
+            finally:engine.close()
+
     def test_worker_logs_only_safe_enums_for_failed_voice(self):
         from plus_one.engine import Engine
         from plus_one.worker import process_inbox

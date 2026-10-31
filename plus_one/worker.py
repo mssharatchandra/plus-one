@@ -12,7 +12,7 @@ _VOICE_CATEGORIES = {"credit", "auth", "rate", "model", "other", "dns", "tls", "
                      "connect_or_policy", "unexpected", "content_type", "empty_transcript",
                      "invalid_transcript", "invalid_json_or_size", "invalid_metadata",
                      "octet_stream", "known_audio_mismatch", "unknown_mime", "speech_error",
-                     "invalid_media_id"}
+                     "invalid_media_id", "html_error", "cooldown"}
 
 
 def _record_voice_diagnostic(inbox_id, exc):
@@ -96,7 +96,12 @@ def process_inbox(engine,transport=None,transcribers=None):
                         diagnostic=_record_voice_diagnostic(row['id'], exc)
                         voice_error=(f"voice:{diagnostic['stage']}:{diagnostic['category']}:"
                                      f"{diagnostic['http_status'] or 'none'}")
-                        if getattr(exc, "stage", None) == "media_fetch" and getattr(exc, "status", None) == 404:
+                        if getattr(exc, "stage", None) == "media_fetch" and (
+                                getattr(exc, "status", None) == 429 or
+                                getattr(exc, "category", None) == "cooldown"):
+                            response=("Voice transcription is temporarily unavailable while the audio download "
+                                      "service is limited. Nothing was transcribed or saved. Please type your message for now.")
+                        elif getattr(exc, "stage", None) == "media_fetch" and getattr(exc, "status", None) == 404:
                             response=("Your voice note arrived, but its audio file wasn't available for me to read. "
                                       "Nothing was transcribed or saved. Please type your message for now.")
                         else:

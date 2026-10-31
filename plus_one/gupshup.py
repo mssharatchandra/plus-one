@@ -265,11 +265,13 @@ class VoicePipelineDiagnostic(SpeechError):
 
 
 class GupshupTranscriber:
-    def __init__(self, config: GupshupConfig, speech: SpeechConfig, client=None):
+    def __init__(self, config: GupshupConfig, speech: SpeechConfig, client=None,
+                 media_pause_until: float = 0):
         speech.validate()
         config.validate_inbound()
         self.config, self.speech = config, speech
         self.client = client or PublicHTTPSClient(allow_query=True)
+        self.media_pause_until = media_pause_until
 
     def transcribe(self, media: GupshupMedia | dict) -> str:
         self.speech.validate()  # Gates before media fetch, even for direct callers.
@@ -278,6 +280,8 @@ class GupshupTranscriber:
             if isinstance(media, dict):
                 media = GupshupMedia(**media)
             media = validate_gupshup_media(self.config, media)
+            if time.time() < self.media_pause_until:
+                raise VoicePipelineDiagnostic("media_fetch", "cooldown")
             # Official downloadable filemanager URL has no API-key auth documented.
             # NEVER forward the outbound Gupshup API key to a media host.
             # Use ordinary HTTP client headers for FileManager. Its media
@@ -304,6 +308,10 @@ class GupshupTranscriber:
         except VoiceInputError:
             raise
         except SpeechHTTPError as exc:
+            if stage == "media_fetch" and exc.status == 429:
+                # FileManager documents an hour-long cooldown after its invalid
+                # media limit. Do not keep requesting while that limit applies.
+                self.media_pause_until = max(self.media_pause_until, time.time() + 3600)
             raise VoicePipelineDiagnostic(stage, exc.category, exc.status) from None
         except SpeechError as exc:
             category = getattr(exc, "category", "speech_error")
@@ -317,5 +325,11 @@ class GupshupTranscriber:
 
 
 def configured_gupshup_transcriber(config: GupshupConfig, env: Mapping[str, str] | None = None):
+    env = os.environ if env is None else env
     speech = SpeechConfig.from_env(env)
-    return GupshupTranscriber(config, speech) if speech.enabled else None
+    if not speech.enabled:
+        return None
+    pause_until = float(env.get("GUPSHUP_MEDIA_FETCH_PAUSED_UNTIL", "0"))
+    if not 0 <= pause_until < 4102444800:
+        raise ValueError("Invalid media fetch pause deadline.")
+    return GupshupTranscriber(config, speech, media_pause_until=pause_until)
