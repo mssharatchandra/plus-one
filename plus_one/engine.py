@@ -186,6 +186,21 @@ class Engine:
     @staticmethod
     def _normalize(text):
         # Narrow conversational aliases, not claims of unrestricted language understanding.
+        # People may paste a demo instruction with its heading and "Send:" label.
+        # Unwrap only an exact, single-line example for the matching benign flow.
+        example=re.fullmatch(
+            r'[ \t]*(timezone|currency|name|tone|expense|reminder|learning|help)[ \t]*\r?\n'
+            r'[ \t]*send:[ \t]*([^\r\n]+)[ \t]*',text,re.I)
+        if example:
+            heading,candidate=example.groups()
+            heading=heading.casefold(); candidate=candidate.strip()
+            lower=candidate.casefold()
+            if ((heading in {'timezone','currency','name','tone'} and lower.startswith(heading+' '))
+                    or (heading=='expense' and Engine._is_expense(candidate))
+                    or (heading=='reminder' and lower.startswith('remind me to '))
+                    or (heading=='learning' and lower.startswith('learn '))
+                    or (heading=='help' and lower=='help')):
+                return candidate
         simple=text.casefold().rstrip(' .?!')
         aliases={'who owes me':'balances','who do i owe':'balances','what do i owe':'balances',
                  'show my balances':'balances','who owes me and who do i owe':'balances',

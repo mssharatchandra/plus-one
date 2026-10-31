@@ -24,6 +24,18 @@ class EngineTests(unittest.TestCase):
         self.say('timezone Asia/Kolkata')
         self.assertIsNone(self.e.snapshot('alice')['profile']['timezone'])
         self.say('confirm'); self.assertEqual(self.e.snapshot('alice')['profile']['timezone'],'Asia/Kolkata')
+    def test_pasted_send_example_requires_normal_confirmation(self):
+        preview=self.say('Timezone\nSend: timezone Asia/Kolkata')
+        self.assertIn('CONFIRM',preview)
+        self.assertIsNone(self.e.snapshot('alice')['profile']['timezone'])
+        self.say('confirm')
+        self.assertEqual(self.e.snapshot('alice')['profile']['timezone'],'Asia/Kolkata')
+        self.assertIn('CONFIRM',self.say('Expense\nSend: I paid INR 600 for dinner with Maya'))
+        self.assertEqual(self.e.snapshot('alice')['expenses'],[])
+    def test_pasted_send_label_cannot_hide_control_command(self):
+        result=self.say('Timezone\nSend: delete my data')
+        self.assertIn('little more detail',result)
+        self.assertEqual(self.e.snapshot('alice')['pending'],[])
     def test_expense_confirmation_exact_balance_and_replay(self):
         text='expense INR 100 for dinner with Maya, Rahul'
         self.say(text,message_id='expense')
