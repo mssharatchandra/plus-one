@@ -141,6 +141,25 @@ class SarvamSpeechTests(unittest.TestCase):
             finally:
                 engine.close()
 
+    def test_worker_explains_404_without_claiming_transcription(self):
+        from plus_one.engine import Engine
+        from plus_one.worker import process_inbox
+        with TemporaryDirectory() as tmp:
+            engine = Engine(Path(tmp)/"test.sqlite3", clock=lambda:datetime(2026,10,31,12,tzinfo=timezone.utc))
+            try:
+                engine.enqueue_inbound("gupshup", "synthetic-id", "synthetic-user",
+                    {"kind":"audio", "text":None, "media":{}, "received_at":"2026-10-31T12:00:00+00:00"})
+                transcriber = Mock()
+                transcriber.transcribe.side_effect = VoicePipelineDiagnostic("media_fetch", "invalid_media_id", 404)
+                process_inbox(engine, transcribers={"gupshup":transcriber})
+                body=engine.db.execute("SELECT body FROM reply_outbox").fetchone()["body"]
+                self.assertIn("audio file wasn't available",body)
+                self.assertIn("Nothing was transcribed or saved",body)
+                self.assertNotIn("I heard:",body)
+                self.assertEqual(transcriber.transcribe.call_count,1)
+            finally:
+                engine.close()
+
 
 if __name__ == "__main__":
     unittest.main()

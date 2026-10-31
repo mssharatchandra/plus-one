@@ -93,7 +93,11 @@ def process_inbox(engine,transport=None,transcribers=None):
                         response=str(exc)
                     except Exception as exc:
                         _record_voice_diagnostic(row['id'], exc)
-                        response="I couldn't transcribe that voice note. Please type the message instead; nothing from the note was saved."
+                        if getattr(exc, "stage", None) == "media_fetch" and getattr(exc, "status", None) == 404:
+                            response=("Your voice note arrived, but its audio file wasn't available for me to read. "
+                                      "Nothing was transcribed or saved. Please type your message for now.")
+                        else:
+                            response="I couldn't transcribe that voice note. Please type the message instead; nothing from the note was saved."
         elif payload['kind']!='text':
             response='Please send text or one voice note for this demo. Images and other attachments are not processed.'
         if response is None:
