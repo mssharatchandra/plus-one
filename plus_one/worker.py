@@ -17,9 +17,6 @@ _VOICE_CATEGORIES = {"credit", "auth", "rate", "model", "other", "dns", "tls", "
 
 def _record_voice_diagnostic(inbox_id, exc):
     """Optional local operator log: fixed enums only, never content or identifiers."""
-    path = os.environ.get("VOICE_DIAGNOSTIC_PATH")
-    if not path:
-        return
     stage = getattr(exc, "stage", "worker")
     category = getattr(exc, "category", "unexpected")
     status = getattr(exc, "status", None)
@@ -27,12 +24,16 @@ def _record_voice_diagnostic(inbox_id, exc):
              "stage": stage if stage in _VOICE_STAGES else "worker",
              "category": category if category in _VOICE_CATEGORIES else "other",
              "http_status": status if isinstance(status, int) and 100 <= status <= 599 else None}
+    path = os.environ.get("VOICE_DIAGNOSTIC_PATH")
+    if not path:
+        return event
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "a", encoding="ascii") as f:
             f.write(json.dumps(event, separators=(",", ":")) + "\n")
     except OSError:
         pass  # Diagnostic failure must never prevent a safe user reply.
+    return event
 
 class WorkerLock:
     """POSIX process lock: only one scheduler per database; releases on crash."""
@@ -74,7 +75,7 @@ def process_inbox(engine,transport=None,transcribers=None):
         row=engine.claim_inbound()
         if row is None: break
         payload=row['payload']; uid=row['user_id']; mid=row['provider']+':'+row['message_id']
-        text=payload.get('text'); response=None
+        text=payload.get('text'); response=None; voice_error=None
         if payload['kind']=='audio':
             response=engine.inbound_preflight(uid,mid)
             if response is None:
@@ -92,7 +93,9 @@ def process_inbox(engine,transport=None,transcribers=None):
                     except VoiceInputError as exc:
                         response=str(exc)
                     except Exception as exc:
-                        _record_voice_diagnostic(row['id'], exc)
+                        diagnostic=_record_voice_diagnostic(row['id'], exc)
+                        voice_error=(f"voice:{diagnostic['stage']}:{diagnostic['category']}:"
+                                     f"{diagnostic['http_status'] or 'none'}")
                         if getattr(exc, "stage", None) == "media_fetch" and getattr(exc, "status", None) == 404:
                             response=("Your voice note arrived, but its audio file wasn't available for me to read. "
                                       "Nothing was transcribed or saved. Please type your message for now.")
@@ -102,7 +105,7 @@ def process_inbox(engine,transport=None,transcribers=None):
             response='Please send text or one voice note for this demo. Images and other attachments are not processed.'
         if response is None:
             response=engine.handle(uid,text,mid,inbox_id=row['id'])
-        persisted=engine.finish_inbound(row['id'],response)
+        persisted=engine.finish_inbound(row['id'],response,error=voice_error)
         if not persisted:
             # Deletion scrubs recipient and content from every durable queue. Its
             # acknowledgement may be attempted once from transient worker memory.

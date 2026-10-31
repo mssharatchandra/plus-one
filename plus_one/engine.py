@@ -494,8 +494,10 @@ class Engine:
             db.execute("UPDATE inbox SET payload=?,status='processing' WHERE id=?",(json.dumps(payload),inbox_id))
             return True
 
-    def finish_inbound(self,inbox_id,response,now=None):
+    def finish_inbound(self,inbox_id,response,now=None,error=None):
         """Return False after privacy deletion: caller may send one transient reply."""
+        if error is not None and not re.fullmatch(r"voice:[a-z_]+:[a-z_]+:(?:[1-5][0-9]{2}|none)", error):
+            raise ValueError('Only a safe voice diagnostic code may be persisted.')
         with self.transaction() as db:
             row=db.execute('SELECT * FROM inbox WHERE id=?',(inbox_id,)).fetchone()
             if not row or row['status']=='erased': return False
@@ -503,7 +505,7 @@ class Engine:
             db.execute('INSERT OR IGNORE INTO reply_outbox(inbox_id,user_id,body,created_at) VALUES (?,?,?,?)',
                        (inbox_id,row['user_id'],response,iso(self._now(now))))
             # Keep source timestamp for session proof; no longer need raw audio URL/text.
-            db.execute("UPDATE inbox SET status='completed',payload=NULL WHERE id=?",(inbox_id,))
+            db.execute("UPDATE inbox SET status='completed',payload=NULL,error=? WHERE id=?",(error,inbox_id))
             return True
 
     def claim_reply(self):

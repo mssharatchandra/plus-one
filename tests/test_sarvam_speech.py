@@ -138,6 +138,9 @@ class SarvamSpeechTests(unittest.TestCase):
                 self.assertEqual(diagnostic.stat().st_mode & 0o777,0o600)
                 self.assertNotIn("synthetic-user",diagnostic.read_text())
                 self.assertNotIn("synthetic-id",diagnostic.read_text())
+                row=engine.db.execute("SELECT error,payload FROM inbox").fetchone()
+                self.assertEqual(row["error"],"voice:media_type:octet_stream:none")
+                self.assertIsNone(row["payload"])
             finally:
                 engine.close()
 
