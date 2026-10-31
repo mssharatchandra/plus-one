@@ -92,6 +92,13 @@ class GupshupInboundTests(unittest.TestCase):
         parsed = parse_inbound_event(CONFIG,event("audio",{"url":media_url(),"contentType":"audio/ogg; codecs=opus","urlExpiry":(NOW.timestamp()+60)*1000}),NOW)
         self.assertEqual(parsed.media.content_type,"audio/ogg")
         self.assertEqual(parsed.to_dict()["media"]["app_id"],APP_ID)
+        sandbox_url=f"https://filemanager.gupshup.io/wa/{APP_ID}/wa/media/opaqueMedia_123?download=false"
+        parsed_sandbox=parse_inbound_event(CONFIG,event("audio",{"url":sandbox_url,"contentType":"audio/ogg; codecs=opus"}),NOW)
+        self.assertEqual(parsed_sandbox.media.url,sandbox_url)
+        for bad_suffix in ("../outside", "other/item", "opaque%2Fitem", "opaque.item", ""):
+            bad=f"https://filemanager.gupshup.io/wa/{APP_ID}/wa/media/{bad_suffix}?download=false"
+            with self.subTest(suffix=bad_suffix),self.assertRaises(ValueError):
+                parse_inbound_event(CONFIG,event("audio",{"url":bad,"contentType":"audio/ogg"}),NOW)
         for bad_url in ["https://169.254.169.254/latest",media_url().replace(APP_ID,MEDIA_ID),media_url()+"&url=https://evil.test",media_url().replace("filemanager.gupshup.io","filemanager.gupshup.io.evil.test")]:
             with self.assertRaises(ValueError):
                 parse_inbound_event(CONFIG,event("audio",{"url":bad_url,"contentType":"audio/ogg"}),NOW)

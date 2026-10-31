@@ -129,7 +129,9 @@ def validate_gupshup_media(config: GupshupConfig, media: GupshupMedia, now=None)
     current_prefix = f"/wa/{config.app_id}/wa/media/"
     legacy_prefix = f"/fm/wamedia/{config.app_name}/"
     if UUID.fullmatch(config.app_id) and p.path.startswith(current_prefix):
-        if not UUID.fullmatch(p.path[len(current_prefix):]):
+        # Self-serve sandbox media IDs can be opaque URL-safe tokens rather than
+        # UUIDs. Keep the exact app-scoped path, one segment and fixed host.
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", p.path[len(current_prefix):]):
             raise ValueError("Invalid Gupshup media identifier.")
         if p.query and parse_qsl(p.query, keep_blank_values=True) not in [[("download", "false")], [("download", "true")]]:
             raise ValueError("Unsupported Gupshup media URL query.")
