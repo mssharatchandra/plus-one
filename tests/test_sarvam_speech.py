@@ -50,6 +50,10 @@ class SarvamSpeechTests(unittest.TestCase):
     def test_invalid_gupshup_media_id_is_classified_without_body(self):
         code, category = _provider_error_summary(b'{"status":"error","message":"Invalid Media Id"}')
         self.assertEqual((code,category),("unknown","invalid_media_id"))
+        self.assertEqual(_provider_error_summary(b'<html>Not Found</html>'),
+                         ("unknown", "html_error"))
+        self.assertEqual(_provider_error_summary(b'{"message":"Api rate limit reached; new quota later"}'),
+                         ("unknown", "rate"))
 
     def test_env_selects_only_sarvam_key_for_sarvam_model(self):
         cfg = SpeechConfig.from_env({"STT_ENABLED": "true", "STT_PROVIDER_AUTHORIZED": "true",

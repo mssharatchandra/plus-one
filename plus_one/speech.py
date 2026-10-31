@@ -46,6 +46,8 @@ class SpeechHTTPError(SpeechError):
 
 
 def _provider_error_summary(raw: bytes) -> tuple[str, str]:
+    if raw.lstrip().lower().startswith((b"<!doctype html", b"<html")):
+        return "unknown", "html_error"
     try:
         obj = json.loads(raw)
         value = obj.get("code") if isinstance(obj, dict) else None
@@ -55,9 +57,9 @@ def _provider_error_summary(raw: bytes) -> tuple[str, str]:
         message = obj.get("message", "") if isinstance(obj, dict) else ""
         message = message.casefold() if isinstance(message, str) else ""
         category = ("invalid_media_id" if "invalid media id" in message else
+                    "rate" if any(x in message for x in ("rate limit", "too many requests")) else
                     "credit" if any(x in message for x in ("balance", "credit", "quota", "payment")) else
                     "auth" if any(x in message for x in ("unauthorized", "api key", "token", "authentication")) else
-                    "rate" if any(x in message for x in ("rate limit", "too many requests")) else
                     "model" if "model" in message else "other")
         return code, category
     except (TypeError, ValueError):
