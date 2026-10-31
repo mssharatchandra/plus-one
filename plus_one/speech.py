@@ -97,11 +97,13 @@ class SpeechConfig:
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None):
         env = os.environ if env is None else env
+        model = env.get("STT_MODEL", "")
         return cls(
             enabled=env.get("STT_ENABLED", "").lower() == "true",
             provider_authorized=env.get("STT_PROVIDER_AUTHORIZED", "").lower() == "true",
             api_base_url=env.get("STT_API_BASE_URL", "").rstrip("/"),
-            model=env.get("STT_MODEL", ""), api_key=env.get("STT_API_KEY", ""),
+            model=model,
+            api_key=env.get("SARVAM_API_KEY", "") if model == "saaras:v4" else env.get("STT_API_KEY", ""),
         )
 
     def validate(self):
@@ -110,8 +112,11 @@ class SpeechConfig:
         _url_parts(self.api_base_url)
         if self.model == "glm-asr-2512" and self.api_base_url != "https://api.z.ai/api/paas/v4":
             raise SpeechConfigurationError("Z.ai ASR requires its exact official API base.")
+        if self.model == "saaras:v4" and self.api_base_url != "https://api.sarvam.ai":
+            raise SpeechConfigurationError("Sarvam STT requires its exact official API base.")
         if not self.api_key or any(ord(c) < 33 or ord(c) > 126 for c in self.api_key):
-            raise SpeechConfigurationError("A valid STT_API_KEY is required.")
+            key_name = "SARVAM_API_KEY" if self.model == "saaras:v4" else "STT_API_KEY"
+            raise SpeechConfigurationError(f"A valid {key_name} is required.")
         if not re.fullmatch(r"[a-zA-Z0-9_./:-]{1,128}", self.model):
             raise SpeechConfigurationError("A valid STT_MODEL is required.")
         if not 1 <= self.timeout_seconds <= 30:
@@ -258,6 +263,9 @@ def transcribe_audio(audio: bytes, content_type: str, config: SpeechConfig, clie
     if config.model == "glm-asr-2512":
         from .zai_speech import transcribe_zai
         return transcribe_zai(audio, content_type, config, client)
+    if config.model == "saaras:v4":
+        from .sarvam_speech import transcribe_sarvam
+        return transcribe_sarvam(audio, content_type, config, client)
     if not isinstance(audio, bytes) or not audio or len(audio) > MAX_AUDIO_BYTES or content_type not in AUDIO_EXTENSIONS:
         raise SpeechError("Audio is empty, oversized, or has an unsupported type.")
     client = client or PublicHTTPSClient()

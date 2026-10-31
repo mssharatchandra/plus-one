@@ -1,4 +1,4 @@
-# Optional real voice adapter (not live-verified)
+# Optional voice adapters
 
 The default demo does **not** claim to transcribe voice. With no configured adapter,
 a voice note receives an honest request to type its transcript. The expense/task
@@ -19,6 +19,25 @@ Set secrets in the process environment, never source control or shell history:
 | `STT_API_BASE_URL` | Compatible HTTPS API base, e.g. `https://api.openai.com/v1` |
 | `STT_MODEL` | An audio transcription model actually supported by that endpoint |
 | `STT_API_KEY` | Provider credential |
+
+For Sarvam, set `STT_API_BASE_URL=https://api.sarvam.ai`,
+`STT_MODEL=saaras:v4`, and `SARVAM_API_KEY`. Its profile ignores `STT_API_KEY`
+so a key for another provider cannot accidentally be sent to Sarvam.
+
+## Sarvam Saaras v4 profile
+
+The [official recorded-audio API](https://docs.sarvam.ai/api-reference/speech-to-text/transcribe)
+accepts `POST https://api.sarvam.ai/speech-to-text`, an
+`api-subscription-key` header, and multipart `file`, `model=saaras:v4`, and
+`language_code=unknown`. It returns JSON `transcript`; `unknown` requests
+automatic language detection. The profile does not translate the spoken text.
+Supported recognition languages do not imply that the downstream expense and
+reminder interpreter understands every language.
+
+The local app accepts OGG, WAV, or MP3 notes up to 10 MiB, converts them in
+memory to mono 16 kHz WAV, and rejects notes over 30 seconds before upload.
+The first intended live test is transcription only, with no reminder or
+expense created from that note.
 
 The configured Twilio account SID/auth token are additionally required. The signed
 webhook still requires the allowlisted tester, exact account/recipient identity,
@@ -42,16 +61,16 @@ multipart `model`, `stream=false`, and a WAV `file`, with a JSON `text` response
 This profile requires both existing STT authorization flags and a separate
 approved audio-sharing decision. `STT_FFMPEG_PATH` may name an existing trusted
 absolute ffmpeg executable; otherwise the adapter looks for one on PATH. It
-never installs a converter. This Mac currently has no ffmpeg, so actual OGG
-voice conversion is unavailable here.
+never installs a converter. The Mac demo has an operator-verified FFmpeg
+executable available through `STT_FFMPEG_PATH`.
 
 Only OGG, WAV, or MP3 input is accepted (up to 10 MiB). A bounded local decoder
 produces mono 16 kHz WAV in memory; notes longer than 30 seconds are rejected.
 The decoder uses no shell, file or network protocol, audio temp file, inherited
 secret environment, or surfaced stderr. These limits reduce exposure to
 untrusted audio but do not sandbox the native decoder. The adapter does not
-upload anything when disabled, and no actual user audio or Z.ai ASR call has
-been made.
+upload anything when disabled. A synthetic Z.ai ASR canary returned HTTP 429;
+Z.ai voice remains disabled. No user audio was sent to Z.ai.
 
 ## Data boundary and limits
 
