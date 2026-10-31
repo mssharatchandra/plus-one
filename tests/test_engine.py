@@ -4,7 +4,9 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock
 from plus_one.engine import Engine
+from plus_one.interpretation import ConstrainedInterpreter
 from plus_one.worker import WorkerLock,run_once
 from plus_one.transport import DeliveryError,DeliveryUncertain
 
@@ -55,6 +57,17 @@ class EngineTests(unittest.TestCase):
         self.assertIn('Rahul owes you INR 200.00',result)
         self.assertIn('Maya owes you INR 200.00',self.say('please show my balances'))
         self.assertIn('little more detail',self.say('what does Maya owe me?'))
+    def test_model_classifies_broad_balance_but_engine_calculates_it(self):
+        self.say('I paid INR 600 for dinner with Maya and Rahul')
+        self.say('confirm')
+        llm=Mock()
+        llm.complete.return_value='{"intent":"balances","text":"balances"}'
+        self.e.interpreter=ConstrainedInterpreter(llm)
+        answer=self.say('How are my balances looking?')
+        self.assertIn('Maya owes you INR 200.00',answer)
+        self.assertIn('Rahul owes you INR 200.00',answer)
+        self.assertNotIn('200.00',llm.complete.call_args.args[0][0]['content'])
+        self.assertIn('little more detail',self.say('What does Maya owe me?'))
     def test_two_way_net_balances_with_confirmed_default_currency(self):
         self.say('currency INR'); self.assertIsNone(self.e.snapshot('alice')['profile']['currency'])
         self.say('confirm'); self.say('I paid 600 for dinner split with Maya and Rahul'); self.say('confirm')

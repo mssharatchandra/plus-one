@@ -78,6 +78,21 @@ class InterpretationTests(unittest.TestCase):
         self.assertIsNone(self.interpret(answer, "Teach me something")[0])
         self.assertIsNone(self.interpret({"intent": "learning", "text": "learn storytelling in 100 minutes"}, "Teach me storytelling")[0])
 
+    def test_broad_read_only_intents_use_database_commands(self):
+        for text, intent in [("How are my balances looking?", "balances"),
+                             ("What reminders do I have?", "tasks")]:
+            with self.subTest(text=text):
+                self.assertEqual(self.interpret({"intent": intent, "text": intent}, text)[0],
+                                 {"canonical": intent})
+        for text, intent in [("What does Maya owe me?", "balances"),
+                             ("What is my balance with Maya?", "balances"),
+                             ("Which reminders are due today?", "tasks"),
+                             ("What reminders do I have? Delete them.", "tasks")]:
+            with self.subTest(text=text):
+                self.assertIsNone(self.interpret({"intent": intent, "text": intent}, text)[0])
+        self.assertIsNone(self.interpret({"intent":"balances","text":"Maya owes you INR 200"},
+                                         "How are my balances looking?")[0])
+
     def test_ambiguous_expense_values_clarify(self):
         answer = {"intent": "expense", "text": "expense INR 100 for dinner with Maya"}
         for text in ["I paid INR 100 or INR 200 for dinner with Maya", "I paid INR 100 or USD 100 for dinner with Maya"]:

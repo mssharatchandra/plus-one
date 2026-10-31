@@ -37,6 +37,29 @@ class ProviderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             LLMConfig.from_env({"LLM_ENABLED": "yes"})
 
+    @patch("plus_one.providers.request.build_opener")
+    def test_zai_flash_profile_request_is_json_and_low_reasoning(self, build):
+        build.return_value.open.return_value = Response(b'{"choices":[{"finish_reason":"stop","message":{"content":"{\\"intent\\":\\"clarify\\",\\"text\\":\\"\\"}"}}]}')
+        config = self.config(base_url="https://api.z.ai/api/paas/v4", model="glm-5.3-flash",
+                             request_profile="zai-glm-5.3-flash")
+        out = OpenAICompatibleLLM(config).complete([{"role": "user", "content": "test"}])
+        self.assertIn('"clarify"', out)
+        req = build.return_value.open.call_args.args[0]
+        body = json.loads(req.data)
+        self.assertEqual(req.full_url, "https://api.z.ai/api/paas/v4/chat/completions")
+        self.assertEqual(body["thinking"], {"type": "enabled"})
+        self.assertEqual(body["reasoning_effort"], "low")
+        self.assertEqual(body["response_format"], {"type": "json_object"})
+        self.assertNotIn("secret-key", repr(config))
+
+    def test_zai_flash_profile_cannot_target_other_endpoint_or_model(self):
+        for overrides in [dict(base_url="https://api.example.com/v1", model="glm-5.3-flash"),
+                          dict(base_url="https://api.z.ai/api/paas/v4", model="other")]:
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                self.config(request_profile="zai-glm-5.3-flash", **overrides).validate()
+        with self.assertRaises(ValueError):
+            self.config(request_profile="unknown").validate()
+
     def test_rejects_unsafe_endpoints(self):
         for base in ["http://api.example.com", "https://user:pass@api.example.com", "https://api.example.com?x=1",
                      "https://api.example.com/#secret", "https://localhost", "https://127.0.0.1", "https://[::1]",

@@ -66,6 +66,7 @@ class LLMConfig:
     max_response_bytes: int = 262144
     max_input_chars: int = 16000
     max_output_tokens: int = 1024
+    request_profile: str = "generic"
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "LLMConfig":
@@ -76,6 +77,7 @@ class LLMConfig:
             base_url=env.get("LLM_API_BASE_URL", "").strip(),
             model=env.get("LLM_MODEL", "").strip(),
             api_key=env.get("LLM_API_KEY", ""),
+            request_profile=env.get("LLM_REQUEST_PROFILE", "generic").strip(),
         )
 
     def validate(self) -> str:
@@ -95,6 +97,12 @@ class LLMConfig:
             raise ValueError("Invalid provider size limits.")
         if not 1 <= self.max_output_tokens <= 4096:
             raise ValueError("Provider output token limit must be between 1 and 4096.")
+        if self.request_profile not in {"generic", "zai-glm-5.3-flash"}:
+            raise ValueError("Unknown text AI request profile.")
+        if self.request_profile == "zai-glm-5.3-flash" and (
+                self.base_url.rstrip("/") != "https://api.z.ai/api/paas/v4"
+                or self.model != "glm-5.3-flash"):
+            raise ValueError("Z.ai Flash profile requires the official general API and glm-5.3-flash.")
         return _endpoint(self.base_url)
 
 
@@ -131,8 +139,12 @@ class OpenAICompatibleLLM:
             safe_messages.append({"role": role, "content": content})
         if total_chars > self.config.max_input_chars:
             raise ValueError("Provider input exceeds the configured character limit.")
-        payload = json.dumps({"model": self.config.model, "messages": safe_messages,
-                              "max_tokens": self.config.max_output_tokens, "stream": False}).encode("utf-8")
+        body = {"model": self.config.model, "messages": safe_messages,
+                "max_tokens": self.config.max_output_tokens, "stream": False}
+        if self.config.request_profile == "zai-glm-5.3-flash":
+            body.update({"thinking": {"type": "enabled"}, "reasoning_effort": "low",
+                         "response_format": {"type": "json_object"}})
+        payload = json.dumps(body).encode("utf-8")
         req = request.Request(endpoint, data=payload, method="POST", headers={
             "Authorization": "Bearer " + self.config.api_key,
             "Content-Type": "application/json", "Accept": "application/json",
