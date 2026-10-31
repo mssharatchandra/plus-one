@@ -277,6 +277,8 @@ class GupshupTranscriber:
                     raise SpeechError("Gupshup media content type mismatch.")
                 audio = _bounded_read(response, MAX_AUDIO_BYTES)
             return transcribe_audio(audio, content_type, self.speech, self.client)
+        except SpeechError:
+            raise
         except Exception:
             raise SpeechError("Voice transcription failed. Please type the message; no automatic retry was made.") from None
 

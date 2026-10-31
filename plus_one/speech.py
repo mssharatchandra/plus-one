@@ -83,6 +83,8 @@ class SpeechConfig:
         if not self.enabled or not self.provider_authorized:
             raise SpeechConfigurationError("Speech requires STT_ENABLED=true and explicit STT_PROVIDER_AUTHORIZED=true.")
         _url_parts(self.api_base_url)
+        if self.model == "glm-asr-2512" and self.api_base_url != "https://api.z.ai/api/paas/v4":
+            raise SpeechConfigurationError("Z.ai ASR requires its exact official API base.")
         if not self.api_key or any(ord(c) < 33 or ord(c) > 126 for c in self.api_key):
             raise SpeechConfigurationError("A valid STT_API_KEY is required.")
         if not re.fullmatch(r"[a-zA-Z0-9_./:-]{1,128}", self.model):
@@ -213,6 +215,8 @@ class CompatibleTranscriber:
                     raise SpeechError("Voice-note content type could not be verified.")
                 audio = _bounded_read(response, MAX_AUDIO_BYTES)
             return transcribe_audio(audio, received_type, self.config, self.client)
+        except SpeechError:
+            raise
         except Exception:
             # Never include provider exception bodies, audio, transcript, URLs or keys.
             # No retry: an STT POST may have been accepted and billed already.
@@ -223,6 +227,9 @@ class CompatibleTranscriber:
 def transcribe_audio(audio: bytes, content_type: str, config: SpeechConfig, client=None) -> str:
     """Shared compatible-provider upload; callers own authenticated media retrieval."""
     config.validate()  # Must precede any provider network I/O.
+    if config.model == "glm-asr-2512":
+        from .zai_speech import transcribe_zai
+        return transcribe_zai(audio, content_type, config, client)
     if not isinstance(audio, bytes) or not audio or len(audio) > MAX_AUDIO_BYTES or content_type not in AUDIO_EXTENSIONS:
         raise SpeechError("Audio is empty, oversized, or has an unsupported type.")
     client = client or PublicHTTPSClient()

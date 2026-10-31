@@ -30,10 +30,28 @@ The adapter sends `POST <base>/audio/transcriptions`, Bearer authorization, and
 `multipart/form-data` fields `file`, `model`, and `response_format=json`. It expects
 `Content-Type: application/json` and a JSON object containing a nonempty string
 `text`. This contract follows the [official transcription endpoint](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create).
-Other providers must explicitly support this contract. In particular, **Z.ai GLM
-chat compatibility is not evidence that its ASR2512 audio API supports this route**.
-Verify that provider's exact audio endpoint before enabling; a different contract
-requires another adapter. Model availability and costs have not been checked live.
+Other providers must explicitly support this contract. The separate Z.ai profile
+below uses its own documented request format. Model availability and costs have
+not been checked live.
+
+## Z.ai ASR profile (prepared, disabled)
+
+The `glm-asr-2512` model is pinned to `https://api.z.ai/api/paas/v4` and uses
+the [official audio transcription API](https://docs.z.ai/api-reference/audio/audio-transcriptions):
+multipart `model`, `stream=false`, and a WAV `file`, with a JSON `text` response.
+This profile requires both existing STT authorization flags and a separate
+approved audio-sharing decision. `STT_FFMPEG_PATH` may name an existing trusted
+absolute ffmpeg executable; otherwise the adapter looks for one on PATH. It
+never installs a converter. This Mac currently has no ffmpeg, so actual OGG
+voice conversion is unavailable here.
+
+Only OGG, WAV, or MP3 input is accepted (up to 10 MiB). A bounded local decoder
+produces mono 16 kHz WAV in memory; notes longer than 30 seconds are rejected.
+The decoder uses no shell, file or network protocol, audio temp file, inherited
+secret environment, or surfaced stderr. These limits reduce exposure to
+untrusted audio but do not sandbox the native decoder. The adapter does not
+upload anything when disabled, and no actual user audio or Z.ai ASR call has
+been made.
 
 ## Data boundary and limits
 

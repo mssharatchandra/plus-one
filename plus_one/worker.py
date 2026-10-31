@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import threading
 from .transport import DeliveryError, DeliveryUncertain, TransportDisabled
+from .zai_speech import VoiceInputError
 
 class WorkerLock:
     """POSIX process lock: only one scheduler per database; releases on crash."""
@@ -57,6 +58,8 @@ def process_inbox(engine,transport=None,transcribers=None):
                         text=transcriber.transcribe(payload['media'])
                         if not isinstance(text,str) or not text.strip() or len(text)>4000: raise ValueError('Invalid transcript')
                         if not engine.save_inbound_transcript(row['id'],text): continue
+                    except VoiceInputError as exc:
+                        response=str(exc)
                     except Exception:
                         response="I couldn't transcribe that voice note. Please type the message instead; nothing from the note was saved."
         elif payload['kind']!='text':
