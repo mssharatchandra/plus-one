@@ -7,8 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
+from urllib.request import Request
 
-from plus_one.speech import SpeechConfig, SpeechConfigurationError, SpeechHTTPError, _provider_error_summary, transcribe_audio
+from plus_one.speech import (PublicHTTPSClient, SpeechConfig, SpeechConfigurationError,
+    SpeechHTTPError, _provider_error_summary, transcribe_audio)
 from plus_one.sarvam_speech import (BASE, MODEL, SarvamProviderDiagnostic,
                                     transcribe_sarvam)
 from plus_one.gupshup import GupshupConfig, GupshupMedia, GupshupTranscriber, VoicePipelineDiagnostic
@@ -34,6 +36,17 @@ class Response(io.BytesIO):
 
 
 class SarvamSpeechTests(unittest.TestCase):
+    def test_pinned_media_client_preserves_encoded_query_bytes(self):
+        url = "https://filemanager.gupshup.io/wa/app/wa/media/opaque?download=%66alse"
+        response = Mock(status=200, headers={"Content-Type":"audio/ogg"})
+        with patch("plus_one.speech.socket.getaddrinfo", return_value=[(2,1,6,"",("8.8.8.8",443))]), \
+             patch("plus_one.speech._PinnedHTTPSConnection") as connection:
+            connection.return_value.getresponse.return_value = response
+            with PublicHTTPSClient(allow_query=True).open(Request(url)):
+                pass
+            self.assertEqual(connection.return_value.request.call_args.args[1],
+                             "/wa/app/wa/media/opaque?download=%66alse")
+
     def test_invalid_gupshup_media_id_is_classified_without_body(self):
         code, category = _provider_error_summary(b'{"status":"error","message":"Invalid Media Id"}')
         self.assertEqual((code,category),("unknown","invalid_media_id"))

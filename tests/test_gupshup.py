@@ -176,6 +176,18 @@ class GupshupSpeechTests(unittest.TestCase):
         self.assertIsNone(client.requests[0].get_header("Apikey"))
         self.assertEqual(client.requests[1].get_header("Authorization"),"Bearer fake-stt-key")
 
+    def test_authenticated_event_keeps_exact_media_url_and_millisecond_expiry(self):
+        now = datetime.now(timezone.utc)
+        url = f"https://filemanager.gupshup.io/wa/{APP_ID}/wa/media/opaque-123?download=%66alse"
+        raw = event("audio", {"url":url,"contentType":"audio/ogg; codecs=opus",
+                              "urlExpiry":(now.timestamp()+60)*1000})
+        raw["timestamp"] = now.timestamp()*1000
+        parsed = parse_inbound_event(CONFIG,raw,now)
+        roundtrip = GupshupMedia(**json.loads(json.dumps(parsed.to_dict()))["media"])
+        self.assertEqual(roundtrip.url,url)
+        self.assertAlmostEqual(roundtrip.expires_at,now.timestamp()+60,places=3)
+        self.assertEqual(validate_gupshup_media(CONFIG,roundtrip,now).url,url)
+
     def test_audio_expiry_and_mime_failure_no_provider_upload(self):
         speech=SpeechConfig(True,True,"https://stt.example.com/v1","transcribe","fake-stt-key")
         client=FakeClient([Response(b"private html","text/html")])
