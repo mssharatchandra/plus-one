@@ -119,6 +119,11 @@ class SarvamSpeechTests(unittest.TestCase):
                          ("media_fetch", "auth", 403))
         self.assertNotIn("private", str(caught.exception))
         self.assertEqual(client.open.call_count, 1)
+        media_request = client.open.call_args.args[0]
+        self.assertEqual(media_request.full_url, media.url)
+        self.assertEqual(media_request.get_header("Accept"), "*/*")
+        self.assertEqual(media_request.get_header("User-agent"), "PlusOne/0.1")
+        self.assertIsNone(media_request.get_header("Authorization"))
 
     def test_worker_logs_only_safe_enums_for_failed_voice(self):
         from plus_one.engine import Engine

@@ -280,7 +280,12 @@ class GupshupTranscriber:
             media = validate_gupshup_media(self.config, media)
             # Official downloadable filemanager URL has no API-key auth documented.
             # NEVER forward the outbound Gupshup API key to a media host.
-            request = urllib.request.Request(media.url, headers={"Accept": "audio/*"})
+            # Use ordinary HTTP client headers for FileManager. Its media
+            # response need not advertise an audio type until after the GET;
+            # strict content verification still happens below.
+            request = urllib.request.Request(media.url, headers={
+                "Accept": "*/*", "User-Agent": "PlusOne/0.1",
+            })
             stage = "media_fetch"
             with self.client.open(request, timeout=self.speech.timeout_seconds) as response:
                 stage = "media_type"
