@@ -19,7 +19,8 @@ import urllib.request
 
 from .transport import DeliveryError, DeliveryUncertain, TransportDisabled, _NoRedirect, whatsapp_address
 from .speech import (AUDIO_EXTENSIONS, MAX_AUDIO_BYTES, PublicHTTPSClient, SpeechConfig,
-                     SpeechError, _bounded_read, transcribe_audio)
+                     SpeechError, SpeechHTTPError, _bounded_read, transcribe_audio)
+from .zai_speech import VoiceInputError
 
 SEND_URL = "https://api.gupshup.io/wa/api/v1/msg"
 TEMPLATE_URL = "https://api.gupshup.io/wa/api/v1/template/msg"
@@ -256,6 +257,13 @@ class GupshupTransport:
             raise DeliveryUncertain("Gupshup request outcome is unknown; reconcile before retrying.") from None
 
 
+class VoicePipelineDiagnostic(SpeechError):
+    """Only a bounded stage, category, and numeric HTTP status are retained."""
+    def __init__(self, stage: str, category: str, status: int | None = None):
+        self.stage, self.category, self.status = stage, category, status
+        super().__init__(f"Voice pipeline {stage}: {category}; HTTP {status or 'unknown'}.")
+
+
 class GupshupTranscriber:
     def __init__(self, config: GupshupConfig, speech: SpeechConfig, client=None):
         speech.validate()
@@ -265,6 +273,7 @@ class GupshupTranscriber:
 
     def transcribe(self, media: GupshupMedia | dict) -> str:
         self.speech.validate()  # Gates before media fetch, even for direct callers.
+        stage = "media_validation"
         try:
             if isinstance(media, dict):
                 media = GupshupMedia(**media)
@@ -272,17 +281,34 @@ class GupshupTranscriber:
             # Official downloadable filemanager URL has no API-key auth documented.
             # NEVER forward the outbound Gupshup API key to a media host.
             request = urllib.request.Request(media.url, headers={"Accept": "audio/*"})
+            stage = "media_fetch"
             with self.client.open(request, timeout=self.speech.timeout_seconds) as response:
+                stage = "media_type"
                 content_type = response.headers.get("Content-Type", "").split(";", 1)[0].lower().strip()
                 normalize = lambda mime: "audio/wav" if mime == "audio/x-wav" else mime
                 if normalize(content_type) != normalize(media.content_type):
-                    raise SpeechError("Gupshup media content type mismatch.")
+                    category = ("octet_stream" if content_type == "application/octet-stream"
+                                else "known_audio_mismatch" if content_type in AUDIO_EXTENSIONS else "unknown_mime")
+                    raise VoicePipelineDiagnostic(stage, category)
+                stage = "media_read"
                 audio = _bounded_read(response, MAX_AUDIO_BYTES)
+            stage = "asr"
             return transcribe_audio(audio, content_type, self.speech, self.client)
-        except SpeechError:
+        except VoicePipelineDiagnostic:
             raise
+        except VoiceInputError:
+            raise
+        except SpeechHTTPError as exc:
+            raise VoicePipelineDiagnostic(stage, exc.category, exc.status) from None
+        except SpeechError as exc:
+            category = getattr(exc, "category", "speech_error")
+            status = getattr(exc, "status", None)
+            raise VoicePipelineDiagnostic(stage, category, status) from None
+        except (ValueError, TypeError, AttributeError):
+            category = "invalid_metadata" if stage == "media_validation" else "unexpected"
+            raise VoicePipelineDiagnostic(stage, category) from None
         except Exception:
-            raise SpeechError("Voice transcription failed. Please type the message; no automatic retry was made.") from None
+            raise VoicePipelineDiagnostic(stage, "unexpected") from None
 
 
 def configured_gupshup_transcriber(config: GupshupConfig, env: Mapping[str, str] | None = None):

@@ -2,10 +2,36 @@
 from __future__ import annotations
 import os
 from pathlib import Path
-import os
+import json
 import threading
 from .transport import DeliveryError, DeliveryUncertain, TransportDisabled
 from .zai_speech import VoiceInputError
+
+_VOICE_STAGES = {"media_validation", "media_fetch", "media_type", "media_read", "asr", "worker"}
+_VOICE_CATEGORIES = {"credit", "auth", "rate", "model", "other", "dns", "tls", "timeout",
+                     "connect_or_policy", "unexpected", "content_type", "empty_transcript",
+                     "invalid_transcript", "invalid_json_or_size", "invalid_metadata",
+                     "octet_stream", "known_audio_mismatch", "unknown_mime", "speech_error"}
+
+
+def _record_voice_diagnostic(inbox_id, exc):
+    """Optional local operator log: fixed enums only, never content or identifiers."""
+    path = os.environ.get("VOICE_DIAGNOSTIC_PATH")
+    if not path:
+        return
+    stage = getattr(exc, "stage", "worker")
+    category = getattr(exc, "category", "unexpected")
+    status = getattr(exc, "status", None)
+    event = {"inbox_id": inbox_id,
+             "stage": stage if stage in _VOICE_STAGES else "worker",
+             "category": category if category in _VOICE_CATEGORIES else "other",
+             "http_status": status if isinstance(status, int) and 100 <= status <= 599 else None}
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "a", encoding="ascii") as f:
+            f.write(json.dumps(event, separators=(",", ":")) + "\n")
+    except OSError:
+        pass  # Diagnostic failure must never prevent a safe user reply.
 
 class WorkerLock:
     """POSIX process lock: only one scheduler per database; releases on crash."""
@@ -64,7 +90,8 @@ def process_inbox(engine,transport=None,transcribers=None):
                             if not engine.save_inbound_transcript(row['id'],text): continue
                     except VoiceInputError as exc:
                         response=str(exc)
-                    except Exception:
+                    except Exception as exc:
+                        _record_voice_diagnostic(row['id'], exc)
                         response="I couldn't transcribe that voice note. Please type the message instead; nothing from the note was saved."
         elif payload['kind']!='text':
             response='Please send text or one voice note for this demo. Images and other attachments are not processed.'
