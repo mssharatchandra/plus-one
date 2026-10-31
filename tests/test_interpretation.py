@@ -80,14 +80,16 @@ class InterpretationTests(unittest.TestCase):
 
     def test_broad_read_only_intents_use_database_commands(self):
         for text, intent in [("How are my balances looking?", "balances"),
-                             ("What reminders do I have?", "tasks")]:
+                             ("What reminders do I have?", "tasks"),
+                             ("What have you saved about me?", "memory")]:
             with self.subTest(text=text):
                 self.assertEqual(self.interpret({"intent": intent, "text": intent}, text)[0],
                                  {"canonical": intent})
         for text, intent in [("What does Maya owe me?", "balances"),
                              ("What is my balance with Maya?", "balances"),
                              ("Which reminders are due today?", "tasks"),
-                             ("What reminders do I have? Delete them.", "tasks")]:
+                             ("What reminders do I have? Delete them.", "tasks"),
+                             ("What have you saved about me? Delete it.", "memory")]:
             with self.subTest(text=text):
                 self.assertIsNone(self.interpret({"intent": intent, "text": intent}, text)[0])
         self.assertIsNone(self.interpret({"intent":"balances","text":"Maya owes you INR 200"},
