@@ -137,7 +137,7 @@ class OpenAICompatibleLLM:
             "Authorization": "Bearer " + self.config.api_key,
             "Content-Type": "application/json", "Accept": "application/json",
         })
-        opener = request.build_opener(_NoRedirect())
+        opener = request.build_opener(request.ProxyHandler({}), _NoRedirect())
         try:
             with opener.open(req, timeout=self.config.timeout_seconds) as response:
                 if response.status != 200:
@@ -157,6 +157,10 @@ class OpenAICompatibleLLM:
                 raise ValueError()
             if choice.get("finish_reason") == "length":
                 raise ProviderError("Text AI output was truncated; use a shorter request or a suitable output limit.")
+            if not isinstance(choice.get("message"), dict):
+                raise ValueError()
+            if choice.get("finish_reason") != "stop" or choice["message"].get("tool_calls"):
+                raise ProviderError("Text AI did not return a complete final answer; nothing was executed.")
             content = choice["message"]["content"]
             if not isinstance(content, str) or not content.strip():
                 raise ValueError()

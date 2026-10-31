@@ -133,6 +133,19 @@ class ConstrainedInterpreter:
                 if len(amounts) != 1 or major not in amounts:
                     return None
                 normalized_input = " ".join(unicodedata.normalize("NFC", text).casefold().split())
+                # Reject model-added descriptions and silently omitted friends.
+                description = " ".join(unicodedata.normalize("NFC", parsed["description"]).casefold().split())
+                if not re.search(r"(?<!\w)" + re.escape(description) + r"(?!\w)", normalized_input):
+                    return None
+                participants = re.search(r"\bwith\s+(.+?)\s*[.!?]*$", text, re.I)
+                if participants is None:
+                    return None
+                prefix = "expense" if parsed["payer"] == "me" else parsed["payer"] + " paid"
+                original_shares = parse_expense(
+                    f"{prefix} {parsed['currency']} {major} for check with {participants[1]}",
+                    default_currency=currency)["shares"]
+                if {s["name"].casefold() for s in original_shares} != {s["name"].casefold() for s in parsed["shares"]}:
+                    return None
                 for share in parsed["shares"]:
                     if share["name"] != "me" and not re.search(r"(?<!\w)" + re.escape(share["name"].casefold()) + r"(?!\w)", normalized_input):
                         return None
@@ -140,6 +153,11 @@ class ConstrainedInterpreter:
                 if not canonical.lower().startswith("remind me to ") or not zone or not _TIME_EVIDENCE.search(text):
                     return None
                 parsed = parse_reminder(canonical, zone, now)
+                # A model may extract a task, but may not invent or paraphrase it.
+                title = " ".join(unicodedata.normalize("NFC", parsed["title"]).casefold().split())
+                source = " ".join(unicodedata.normalize("NFC", text).casefold().split())
+                if not re.search(r"(?<!\w)" + re.escape(title) + r"(?!\w)", source):
+                    return None
                 # Ground timing in the original message rather than accepting a
                 # well-formed but invented model date/time.
                 candidates = []

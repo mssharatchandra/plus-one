@@ -113,6 +113,7 @@ class Engine:
         if not isinstance(text, str) or not text.strip() or len(text) > 4000:
             raise ValueError('Please send between 1 and 4000 characters.')
         text = text.strip()
+        original_text = text
         now = self._now(now)
         key = digest(user_id + '\0' + message_id)
         user_hash = digest(user_id)
@@ -158,12 +159,23 @@ class Engine:
                     db.execute('DELETE FROM suppressed WHERE user_hash=?', (user_hash,))
                 db.execute('INSERT OR IGNORE INTO users(user_id,created_at) VALUES (?,?)', (user_id, iso(now)))
                 user = dict(db.execute('SELECT * FROM users WHERE user_id=?', (user_id,)).fetchone())
+                # A correction supersedes the old expense draft even when the
+                # new wording is unsupported or model interpretation fails.
+                correcting_expense = bool(re.match(r'^(?:actually|correction|wait|instead)\b|^no\s*[,!:]', original_text, re.I)) and bool(
+                    db.execute("SELECT 1 FROM pending WHERE user_id=? AND kind='expense'", (user_id,)).fetchone())
+                if correcting_expense:
+                    db.execute("DELETE FROM pending WHERE user_id=? AND kind='expense'", (user_id,))
                 try:
-                    response = self._route(db, user, text, now, inbox_id=inbox_id)
+                    if correcting_expense and not self._is_expense(text):
+                        response = 'I cleared the earlier expense draft. Please resend the complete expense with the correct payer, amount, and participants; I’ll ask you to confirm it again.'
+                    else:
+                        response = self._route(db, user, text, now, inbox_id=inbox_id)
                     if interpreted:
                         response = 'I interpreted your message as: ' + text + '\nPlease check the details below.\n' + response
                 except (ValueError, ZoneInfoNotFoundError) as exc:
                     response = str(exc) or 'I could not understand that. Send HELP for examples.'
+                    if correcting_expense:
+                        response = 'I cleared the earlier expense draft. ' + response
             # Data deletion intentionally keeps only hashed replay identifiers, not cached personal responses.
             deleted = db.execute('SELECT reason FROM suppressed WHERE user_hash=?', (user_hash,)).fetchone()
             cached = None if deleted and deleted['reason'] == 'deleted' else response

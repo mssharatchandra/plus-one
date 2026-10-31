@@ -82,6 +82,15 @@ class ProviderTests(unittest.TestCase):
                 OpenAICompatibleLLM(self.config(max_response_bytes=1024)).complete([{"role": "user", "content": "Hi"}])
 
     @patch("plus_one.providers.request.build_opener")
+    def test_nonfinal_or_tool_call_is_rejected(self, build):
+        for finish, message in [("tool_calls", {"content":"partial","tool_calls":[{"id":"x"}]}),
+                                (None, {"content":"partial"}),
+                                ("stop", {"content":"partial","tool_calls":[{"id":"x"}]})]:
+            build.return_value.open.return_value = Response(json.dumps({"choices":[{"finish_reason":finish,"message":message}]}).encode())
+            with self.subTest(finish=finish), self.assertRaises(ProviderError):
+                OpenAICompatibleLLM(self.config()).complete([{"role":"user","content":"Hi"}])
+
+    @patch("plus_one.providers.request.build_opener")
     def test_rejects_invalid_inputs_before_send(self, build):
         for messages in [[], "hello", [{"role": "tool", "content": "anything"}], [{"role": "user", "content": []}], [{"role": "user", "content": "x" * 16001}]]:
             with self.assertRaises(ValueError):

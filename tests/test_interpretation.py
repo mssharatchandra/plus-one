@@ -54,6 +54,17 @@ class InterpretationTests(unittest.TestCase):
         self.assertIsNotNone(self.interpret(answer, "Maya covered INR 600 for dinner with me and Rahul")[0])
         self.assertIsNone(self.interpret(answer, "I paid INR 600 for dinner with Maya and Rahul")[0])
 
+    def test_expense_description_and_all_participants_must_come_from_input(self):
+        invented = {"intent":"expense","text":"expense INR 100 for dinner with Maya"}
+        self.assertIsNone(self.interpret(invented,"I paid INR 100 for taxi with Maya")[0])
+        self.assertIsNone(self.interpret(invented,"I paid INR 100 for dinner with Maya and Rahul")[0])
+        self.assertIsNotNone(self.interpret(invented,"I paid INR 100 for dinner with Maya")[0])
+
+    def test_reminder_task_must_be_extractive(self):
+        invented = {"intent":"reminder","text":"remind me to pay rent tomorrow at 9am"}
+        self.assertIsNone(self.interpret(invented,"Please remind me to send report tomorrow at 9am")[0])
+        self.assertIsNotNone(self.interpret(invented,"Please remind me to pay rent tomorrow at 9am")[0])
+
     def test_model_cannot_change_reminder_instant(self):
         answer = {"intent": "reminder", "text": "remind me to send report tomorrow at 10am"}
         self.assertIsNone(self.interpret(answer, "Can you nudge me tomorrow at 9am?")[0])

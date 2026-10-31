@@ -57,6 +57,26 @@ class EngineTests(unittest.TestCase):
     def test_cancel_preview(self):
         self.say('expense USD 10 for tea with Ana'); self.say('cancel'); self.say('confirm')
         self.assertEqual(self.e.snapshot('alice')['expenses'],[])
+    def test_payer_correction_clears_old_draft_when_new_phrase_is_unrecognized(self):
+        self.say('I paid INR 600 for dinner with Maya and Rahul')
+        self.assertEqual(len(self.e.snapshot('alice')['pending']),1)
+        reply=self.say('Actually, Maya paid INR 600 for dinner with me and Rahul')
+        self.assertIn('cleared the earlier expense draft',reply)
+        self.assertEqual(self.e.snapshot('alice')['pending'],[])
+        self.assertIn('no proposal',self.say('confirm').lower())
+        self.assertEqual(self.e.snapshot('alice')['expenses'],[])
+    def test_interpreted_payer_correction_requires_new_confirmation(self):
+        self.say('I paid INR 600 for dinner with Maya and Rahul')
+        class Interpreter:
+            def interpret(self, text, profile, now):
+                return {'canonical':'Maya paid INR 600 for dinner with me and Rahul'}
+        self.e.interpreter=Interpreter()
+        reply=self.say('Actually, Maya paid INR 600 for dinner with me and Rahul')
+        self.assertIn('You would owe Maya',reply)
+        self.assertEqual(len(self.e.snapshot('alice')['pending']),1)
+        self.say('confirm')
+        payload=json.loads(self.e.snapshot('alice')['expenses'][0]['payload'])
+        self.assertEqual(payload['payer'],'Maya')
     def test_invalid_expense_no_mutation(self):
         self.say('expense 10 for tea with Ana'); self.say('confirm')
         self.assertEqual(self.e.snapshot('alice')['expenses'],[])
