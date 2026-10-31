@@ -10,8 +10,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from plus_one.speech import SpeechConfig, SpeechConfigurationError, SpeechError, transcribe_audio
-from plus_one.zai_speech import BASE, MAX_PCM, MODEL, VoiceInputError, normalized_wav, transcribe_zai
+from plus_one.speech import (SpeechConfig, SpeechConfigurationError, SpeechError,
+                             SpeechHTTPError, _provider_error_summary, transcribe_audio)
+from plus_one.zai_speech import (BASE, MAX_PCM, MODEL, VoiceInputError,
+                                  VoiceProviderDiagnostic, normalized_wav, transcribe_zai)
 
 
 def config(**overrides):
@@ -110,6 +112,34 @@ class ZaiSpeechTests(unittest.TestCase):
             client.open.return_value = Response(json.dumps({"text": text}).encode())
             with self.assertRaises(SpeechError):
                 transcribe_zai(b"x", "audio/ogg", config(), client)
+
+    @patch("plus_one.zai_speech.normalized_wav", return_value=wav())
+    def test_safe_provider_stage_diagnostics_no_body_or_secret(self, convert):
+        client=Mock()
+        client.open.side_effect=SpeechHTTPError(429,"429", "rate")
+        with self.assertRaises(VoiceProviderDiagnostic) as caught:
+            transcribe_zai(b"x","audio/ogg",config(),client)
+        self.assertEqual((caught.exception.stage,caught.exception.status,caught.exception.code),
+                         ("http",429,"429"))
+        self.assertNotIn("synthetic-not-real",str(caught.exception))
+        client.open.side_effect=TimeoutError("private-token")
+        with self.assertRaises(VoiceProviderDiagnostic) as caught:
+            transcribe_zai(b"x","audio/ogg",config(),client)
+        self.assertEqual(caught.exception.category,"timeout")
+        self.assertNotIn("private-token",str(caught.exception))
+        client.open.side_effect=None
+        client.open.return_value=Response(b'{"id":"private-id","text":""}')
+        with self.assertRaises(VoiceProviderDiagnostic) as caught:
+            transcribe_zai(b"x","audio/ogg",config(),client)
+        self.assertEqual(caught.exception.category,"empty_text")
+        self.assertEqual(caught.exception.response_keys,("id","text"))
+        self.assertNotIn("private-id",str(caught.exception))
+
+    def test_provider_error_summary_never_surfaces_message_or_key(self):
+        self.assertEqual(_provider_error_summary(b'{"code":429,"message":"Rate limit for secret-key"}'),
+                         ("429","rate"))
+        self.assertEqual(_provider_error_summary(b'{"code":"secret-key-value-with-spaces","message":"private"}'),
+                         ("unknown","other"))
 
     def test_worker_returns_safe_input_error_without_retaining_audio_payload(self):
         from plus_one.engine import Engine

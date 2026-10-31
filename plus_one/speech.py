@@ -38,6 +38,31 @@ class SpeechError(RuntimeError):
     """Sanitized failure; a provider request may already have incurred cost."""
 
 
+class SpeechHTTPError(SpeechError):
+    """Only numeric status and bounded provider error classification are retained."""
+    def __init__(self, status: int, code: str = "unknown", category: str = "other"):
+        self.status, self.code, self.category = status, code, category
+        super().__init__(f"Speech provider returned HTTP {status}; code={code}; category={category}.")
+
+
+def _provider_error_summary(raw: bytes) -> tuple[str, str]:
+    try:
+        obj = json.loads(raw)
+        value = obj.get("code") if isinstance(obj, dict) else None
+        code = str(value) if isinstance(value, (str, int)) and not isinstance(value, bool) else "unknown"
+        if not re.fullmatch(r"[0-9]{1,9}", code):
+            code = "unknown"
+        message = obj.get("message", "") if isinstance(obj, dict) else ""
+        message = message.casefold() if isinstance(message, str) else ""
+        category = ("credit" if any(x in message for x in ("balance", "credit", "quota", "payment")) else
+                    "auth" if any(x in message for x in ("unauthorized", "api key", "token", "authentication")) else
+                    "rate" if any(x in message for x in ("rate limit", "too many requests")) else
+                    "model" if "model" in message else "other")
+        return code, category
+    except (TypeError, ValueError):
+        return "unknown", "other"
+
+
 def _url_parts(url: str, allow_query=False):
     try:
         p = urlsplit(url)
@@ -144,8 +169,11 @@ class PublicHTTPSClient:
             connection.request(request.get_method(), (p.path or "/") + ("?" + p.query if p.query else ""), body=request.data, headers=dict(request.header_items()))
             response = connection.getresponse()
             if not 200 <= response.status < 300:
+                status = response.status
+                raw = response.read(4096)
                 response.close()
-                raise SpeechError("Speech network request was rejected; redirects are not followed.")
+                code, category = _provider_error_summary(raw)
+                raise SpeechHTTPError(status, code, category)
             return _Response(response, connection)
         except BaseException:
             connection.close()

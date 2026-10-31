@@ -9,12 +9,15 @@ import json
 import os
 import secrets
 import shutil
+import socket
+import ssl
 import subprocess
 import wave
 from urllib.request import Request
 
 from .speech import (MAX_AUDIO_BYTES, MAX_RESPONSE_BYTES, MAX_TRANSCRIPT_CHARS,
                      PublicHTTPSClient, SpeechConfigurationError, SpeechError,
+                     SpeechHTTPError,
                      _bounded_read)
 
 BASE = "https://api.z.ai/api/paas/v4"
@@ -27,6 +30,16 @@ FORMATS = {"audio/ogg": "ogg", "audio/wav": "wav", "audio/x-wav": "wav",
 
 class VoiceInputError(SpeechError):
     """Safe input-specific message that may be returned to the sender."""
+
+
+class VoiceProviderDiagnostic(SpeechError):
+    """Safe stage/category for operator diagnosis; never includes provider body."""
+    def __init__(self, stage: str, category: str, status: int | None = None,
+                 code: str = "unknown", response_keys: tuple[str, ...] = ()):
+        self.stage, self.category, self.status = stage, category, status
+        self.code, self.response_keys = code, response_keys
+        super().__init__(f"Voice ASR {stage}: {category}; HTTP {status or 'unknown'}; code {code}; "
+                         f"response fields {','.join(response_keys) or 'none'}. No retry was attempted.")
 
 
 def validate_zai_config(config):
@@ -88,14 +101,34 @@ def transcribe_zai(audio, content_type, config, client=None, ffmpeg_path=None):
         "Authorization": "Bearer " + config.api_key, "Accept": "application/json",
         "Content-Type": "multipart/form-data; boundary=" + boundary})
     try:
-        with (client or PublicHTTPSClient()).open(req, timeout=config.timeout_seconds) as response:
-            if response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
-                raise ValueError()
-            obj = json.loads(_bounded_read(response, MAX_RESPONSE_BYTES))
-        text = obj.get("text") if isinstance(obj, dict) else None
-        if (not isinstance(text, str) or not text.strip() or len(text) > MAX_TRANSCRIPT_CHARS
-                or any(ord(c) < 32 and c not in "\n\t\r" for c in text)):
-            raise ValueError()
-        return " ".join(text.split())
+        response = (client or PublicHTTPSClient()).open(req, timeout=config.timeout_seconds)
+    except SpeechHTTPError as exc:
+        raise VoiceProviderDiagnostic("http", exc.category, exc.status, exc.code) from None
+    except socket.gaierror:
+        raise VoiceProviderDiagnostic("network", "dns") from None
+    except ssl.SSLError:
+        raise VoiceProviderDiagnostic("network", "tls") from None
+    except TimeoutError:
+        raise VoiceProviderDiagnostic("network", "timeout") from None
+    except (OSError, SpeechError):
+        raise VoiceProviderDiagnostic("network", "connect_or_policy") from None
     except Exception:
-        raise SpeechError("Voice transcription failed. Please type the message; no automatic retry was made.") from None
+        raise VoiceProviderDiagnostic("network", "unexpected") from None
+    try:
+        with response:
+            if response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+                raise VoiceProviderDiagnostic("response", "content_type")
+            raw = _bounded_read(response, MAX_RESPONSE_BYTES)
+        obj = json.loads(raw)
+        allowed = {"id", "created", "request_id", "model", "text", "code", "message", "error"}
+        keys = tuple(sorted(set(obj) & allowed)) if isinstance(obj, dict) else ()
+        text = obj.get("text") if isinstance(obj, dict) else None
+        if not isinstance(text, str) or not text.strip():
+            raise VoiceProviderDiagnostic("response", "empty_text", response_keys=keys)
+        if len(text) > MAX_TRANSCRIPT_CHARS or any(ord(c) < 32 and c not in "\n\t\r" for c in text):
+            raise VoiceProviderDiagnostic("response", "invalid_text", response_keys=keys)
+        return " ".join(text.split())
+    except VoiceProviderDiagnostic:
+        raise
+    except (ValueError, TypeError, SpeechError):
+        raise VoiceProviderDiagnostic("response", "invalid_json_or_size") from None
