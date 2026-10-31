@@ -18,6 +18,7 @@ from urllib.parse import parse_qsl, urlsplit
 from xml.sax.saxutils import escape
 
 from .gupshup import GupshupConfig, validate_webhook_secret, parse_inbound_event
+from .timeparse import parse_reminder
 from .transport import SID, Transcriber, TwilioConfig, validate_signature, validated_audio_media
 
 MAX_BODY = 16384
@@ -32,6 +33,7 @@ class ServerConfig:
     api_token: str = field(repr=False)
     twilio: TwilioConfig = field(default_factory=TwilioConfig)
     gupshup: GupshupConfig = field(default_factory=GupshupConfig)
+    bolna_tool_secret: str = field(default="", repr=False)
 
     def __post_init__(self):
         if not isinstance(self.api_token, str) or len(self.api_token) < 24:
@@ -40,11 +42,17 @@ class ServerConfig:
             self.twilio.validate_inbound()
         if self.gupshup.webhook_secret or self.gupshup.send_enabled:
             self.gupshup.validate_inbound()
+        if self.bolna_tool_secret and (len(self.bolna_tool_secret) < 32 or
+                not self.bolna_tool_secret.isascii() or
+                any(c.isspace() for c in self.bolna_tool_secret) or
+                self.bolna_tool_secret in {self.api_token, self.gupshup.webhook_secret}):
+            raise ValueError("BOLNA_TOOL_SECRET must be a distinct ASCII secret of at least 32 characters.")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None):
         env = os.environ if env is None else env
-        return cls(env.get("DEMO_API_TOKEN", ""), TwilioConfig.from_env(env), GupshupConfig.from_env(env))
+        return cls(env.get("DEMO_API_TOKEN", ""), TwilioConfig.from_env(env), GupshupConfig.from_env(env),
+                   env.get("BOLNA_TOOL_SECRET", ""))
 
 
 def twiml(text: str) -> bytes:
@@ -156,7 +164,31 @@ def make_server(engine, config: ServerConfig, host: str = "127.0.0.1", port: int
 
         def do_POST(self):
             path = urlsplit(self.path)
-            if path.path == "/api/message":
+            if path.path == "/tools/bolna/reminder-preview":
+                if not config.bolna_tool_secret:
+                    self._respond(404, {"error": "Not found"}); return
+                expected = "Bearer " + config.bolna_tool_secret
+                authorization = self.headers.get_all("Authorization", [])
+                if (len(authorization) != 1 or len(authorization[0]) > 4096 or
+                        not authorization[0].isascii() or
+                        not hmac.compare_digest(authorization[0], expected)):
+                    self._respond(401, {"error": "Unauthorized"}); return
+                try:
+                    data = json.loads(self._body("application/json"))
+                    if not isinstance(data, dict) or set(data) != {"text"}:
+                        raise ValueError("One text field required.")
+                    text = data["text"]
+                    if not isinstance(text, str) or not 1 <= len(text) <= 1000:
+                        raise ValueError("A short reminder request is required.")
+                    proposal = parse_reminder(text, "Asia/Kolkata")
+                except (ValueError, UnicodeError):
+                    self._respond(200, {"status": "clarify", "question":
+                        "Please say the task and an explicit future time, such as tomorrow at 9am.",
+                        "saved": False}); return
+                self._respond(200, {"status": "proposal", "title": proposal["title"],
+                    "due_at": proposal["due_at"], "local_display": proposal["local_display"],
+                    "saved": False})
+            elif path.path == "/api/message":
                 if not self._auth():
                     return
                 try:
