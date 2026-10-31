@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from plus_one.speech import SpeechConfig, SpeechConfigurationError, SpeechHTTPError, transcribe_audio
+from plus_one.speech import SpeechConfig, SpeechConfigurationError, SpeechHTTPError, _provider_error_summary, transcribe_audio
 from plus_one.sarvam_speech import (BASE, MODEL, SarvamProviderDiagnostic,
                                     transcribe_sarvam)
 from plus_one.gupshup import GupshupConfig, GupshupMedia, GupshupTranscriber, VoicePipelineDiagnostic
@@ -34,6 +34,10 @@ class Response(io.BytesIO):
 
 
 class SarvamSpeechTests(unittest.TestCase):
+    def test_invalid_gupshup_media_id_is_classified_without_body(self):
+        code, category = _provider_error_summary(b'{"status":"error","message":"Invalid Media Id"}')
+        self.assertEqual((code,category),("unknown","invalid_media_id"))
+
     def test_env_selects_only_sarvam_key_for_sarvam_model(self):
         cfg = SpeechConfig.from_env({"STT_ENABLED": "true", "STT_PROVIDER_AUTHORIZED": "true",
             "STT_API_BASE_URL": BASE, "STT_MODEL": MODEL,

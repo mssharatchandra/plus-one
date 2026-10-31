@@ -11,7 +11,8 @@ _VOICE_STAGES = {"media_validation", "media_fetch", "media_type", "media_read", 
 _VOICE_CATEGORIES = {"credit", "auth", "rate", "model", "other", "dns", "tls", "timeout",
                      "connect_or_policy", "unexpected", "content_type", "empty_transcript",
                      "invalid_transcript", "invalid_json_or_size", "invalid_metadata",
-                     "octet_stream", "known_audio_mismatch", "unknown_mime", "speech_error"}
+                     "octet_stream", "known_audio_mismatch", "unknown_mime", "speech_error",
+                     "invalid_media_id"}
 
 
 def _record_voice_diagnostic(inbox_id, exc):

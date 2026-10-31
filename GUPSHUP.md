@@ -85,13 +85,13 @@ upstream exactly-once guarantee.
 
 ## Voice notes
 
-`configured_gupshup_transcriber(config, env)` uses the same explicit `STT_ENABLED`,
-`STT_PROVIDER_AUTHORIZED`, `STT_API_BASE_URL`, `STT_MODEL`, and `STT_API_KEY` gates as
+`configured_gupshup_transcriber(config, env)` uses the explicit `STT_ENABLED`,
+`STT_PROVIDER_AUTHORIZED`, `STT_API_BASE_URL`, `STT_MODEL`, and provider-key gates as
 [SPEECH.md](SPEECH.md). It accepts the dataclass or its serialized media dictionary.
 
 The [official media schema](https://docs.gupshup.io/docs/media) provides a downloadable
 `filemanager.gupshup.io` URL, content type, and expiry. This PoC permits only the exact
-configured app UUID under `/wa/{appId}/wa/media/{mediaUuid}` with optional
+configured app UUID under `/wa/{appId}/wa/media/{opaqueMediaId}` with optional
 `download=false|true`, or the documented legacy `/fm/wamedia/{appName}/{mediaId}`
 shape. Expired/foreign-app/arbitrary-host links fail closed. The media URL contract
 does not document an API-key header: **the outbound API key is never sent to the
@@ -99,8 +99,14 @@ media host**. Redirects are not followed. Public DNS checks, pinned TLS connecti
 10 MiB limit and MIME validation apply. No raw media is persisted or logged.
 
 The media URL may be a bearer-capability URL; treat it as private in the durable
-inbox and purge it with the user's data. Actual account-specific media behavior,
-URL format, retention, and STT compatibility remain pending live verification.
+inbox and purge it after processing. The exact URL string is preserved through
+validation and serialization; `urlExpiry` is milliseconds and is converted once
+to seconds for expiry checks. In the live sandbox, the media host returned HTTP
+404 before transcription. A safe provider error category may be logged locally,
+but no raw URL, body, or audio is logged. Do not automatically retry a 400/404:
+[Gupshup's media guidance](https://partner-docs.gupshup.io/docs/media-management)
+warns that invalid media IDs can trigger a one-hour rate limit after repeated
+requests. Account-specific media retrieval remains unverified.
 
 ## Local verification
 

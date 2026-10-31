@@ -171,6 +171,7 @@ class GupshupSpeechTests(unittest.TestCase):
         media=GupshupMedia(media_url(),"audio/ogg","msg1",APP_ID,"PlusOneDemo",time.time()+60)
         text=GupshupTranscriber(CONFIG,speech,client).transcribe(media.to_dict())
         self.assertEqual(text,"spent INR 12 with Maya")
+        self.assertEqual(client.requests[0].full_url, media.url)
         self.assertIsNone(client.requests[0].get_header("Authorization"))
         self.assertIsNone(client.requests[0].get_header("Apikey"))
         self.assertEqual(client.requests[1].get_header("Authorization"),"Bearer fake-stt-key")

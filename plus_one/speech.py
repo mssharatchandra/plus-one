@@ -54,7 +54,8 @@ def _provider_error_summary(raw: bytes) -> tuple[str, str]:
             code = "unknown"
         message = obj.get("message", "") if isinstance(obj, dict) else ""
         message = message.casefold() if isinstance(message, str) else ""
-        category = ("credit" if any(x in message for x in ("balance", "credit", "quota", "payment")) else
+        category = ("invalid_media_id" if "invalid media id" in message else
+                    "credit" if any(x in message for x in ("balance", "credit", "quota", "payment")) else
                     "auth" if any(x in message for x in ("unauthorized", "api key", "token", "authentication")) else
                     "rate" if any(x in message for x in ("rate limit", "too many requests")) else
                     "model" if "model" in message else "other")
